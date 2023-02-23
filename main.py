@@ -40,11 +40,24 @@ HTTP_MESSAGE_REPLY = {
     "flags":0
 }
 
+HEARTBEAT_ACK = {
+    "op": 1,
+    "d": {
+        "token": DISCORD_TOKEN,
+        "properties":{
+            "client_build_number":175856,
+            "client_event_source": None,
+            "design_id":0
+        },
+    }
+}
+
 class DiscordClient:
     def __init__(self):
         self.websocket = None
         self.token = None
         self.logfile = None
+        self.interval = None
         self.searcher = imagesearch.ImageSearcher()
         asyncio.run(self.WebsocketInit())
     
@@ -60,14 +73,18 @@ class DiscordClient:
     async def CreateConnection(self):
         self.websocket = await websockets.connect("wss://gateway.discord.gg/?v=10&encoding=json", max_size=5_000_000)
         await self.websocket.send(json.dumps(MESSAGE_HELLO))
-        await self.DispatcherInit()
+        asyncio.create_task(self.HeartbeatDispatcher())
+        await self.MessageDispatcher()
     
-    async def DispatcherInit(self):
+    async def MessageDispatcher(self):
         while True:
             if self.websocket == None:
                 break
             message = await self.websocket.recv()
             message = json.loads(message)
+            match message["op"]:
+                case 10:
+                    self.interval = message["d"]["heartbeat_interval"] / 1000
             match message["t"]:
                 case "MESSAGE_CREATE":
                     await self.HandleMessage(message["d"])
@@ -95,6 +112,13 @@ class DiscordClient:
         HTTP_MESSAGE_REPLY["message_reference"]["message_id"] = message["id"]
         HTTP_MESSAGE_REPLY["content"] = text
         req = requests.post("https://discord.com/api/v9/channels/" + str(message["channel_id"]) + "/messages", headers=headers, data=json.dumps(HTTP_MESSAGE_REPLY))
-
+    
+    async def HeartbeatDispatcher(self):
+        while True:
+            if self.interval == None:
+                continue
+            await asyncio.sleep(self.interval)
+            await self.websocket.send(json.dumps(HEARTBEAT_ACK))
+            print("Sent Heartbeat")
 
 client = DiscordClient()
