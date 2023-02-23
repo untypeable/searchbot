@@ -1,7 +1,5 @@
-import asyncio
 import requests
 import random
-import re
 
 class ImageSearcher:
     def __init__(self):
@@ -14,28 +12,29 @@ class ImageSearcher:
             "referer": "https://duckduckgo.com/"
         }
     
-    async def update_token_cache(self, query):
-        req = self.session.get("https://duckduckgo.com/?q=" + query)
-        token = re.search(r'vqd=([\d-]+)\&', req.text, re.M | re.I)
-        if token == None:
-            print("Failed to find vqd token in body")
+    def update_token_cache(self, query):
+        req = self.session.get("https://html.duckduckgo.com/html/?q=" + query)
+        vqd_value = '"vqd" value="'
+        if vqd_value not in req.text:
+            print("update_token_cache: Failed to find vqd token in body")
             return False
-        self.token_cache[hash(query)] = token.group(1)
+        self.token_cache[hash(query)] = req.text.split(vqd_value)[1].split('"')[0]
         return True
     
-    async def random_image_results(self, query, is_reload = False):
+    def random_image_results(self, query, page = None, is_reload = False):
         token_hash = hash(query)
-        if not self.token_cache.keys().__contains__(token_hash):
-            success = await self.update_token_cache(query)
-            if not success:
-                print("Failed to update token cache 1")
+        if token_hash not in self.token_cache:
+            if not self.update_token_cache(query):
                 return None
-        offset = str(random.randint(1, 6) * 100)
-        req = self.session.get("https://duckduckgo.com/i.js?o=json&p=-1&vqd=" + self.token_cache[token_hash] + "&q=" + query + "&s=" + offset)
+        if page == None:
+            page = str(random.randint(1, 6) * 100)
+        req = self.session.get("https://duckduckgo.com/i.js?o=json&p=-1&vqd=" + self.token_cache[token_hash] + "&q=" + query + "&s=" + str(page))
         if req.text == "If this error persists, please let us know: ops@duckduckgo.com":
             if is_reload == True:
                 return None
-            print("Search failed. Refreshing vqd token and trying again")
-            self.token_cache.pop(token_hash)
-            await self.random_image_results(query, is_reload = True)
-        return req.json()["results"]
+            print("random_image_results: Search failed")
+            if token_hash in self.token_cache:
+                self.token_cache.pop(token_hash)
+            return self.random_image_results(query, page = 0, is_reload = True)
+        results = req.json()
+        return results
