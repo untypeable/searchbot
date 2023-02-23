@@ -90,15 +90,29 @@ class DiscordClient:
     
     async def handle_message(self, message):
         if message["content"].startswith("!searchbot"):
-            split = message["content"].split("-")
+            image_cmd = "--image "
+            video_cmd = "--video "
+            if image_cmd in message["content"]:
+                cmd = image_cmd
+            elif video_cmd in message["content"]:
+                cmd = video_cmd
+            else:
+                return
+            split = message["content"].split(cmd)
             if len(split) < 2:
                 return
             query = split[1]
-            response = self.searcher.random_image_results(query)
+            if cmd == image_cmd:
+                response = self.searcher.random_image_results(query)
+            elif cmd == video_cmd:
+                response = self.searcher.random_video_results(query)
             results = response["results"]
             if results == None or len(results) == 0:
                 return
-            self.reply_to_message(message, random.choice(results)["image"])
+            if cmd == image_cmd:
+                self.reply_to_message(message, random.choice(results)["image"])
+            elif cmd == video_cmd:
+                self.reply_to_message(message, random.choice(results)["content"])
     
     def reply_to_message(self, message, text):
         headers = {
@@ -119,6 +133,6 @@ class DiscordClient:
         while True:
             await asyncio.sleep(self.interval)
             await self.websocket.send(beartbeat_payload)
-            print("Sent Heartbeat")
+            print("HEARTBEAT")
 
 client = DiscordClient()
