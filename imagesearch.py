@@ -12,6 +12,12 @@ class ImageSearcher:
             "referer": "https://duckduckgo.com/"
         }
     
+    def validate_cache(self, query, token):
+        if token not in self.token_cache:
+            if not self.update_token_cache(query):
+                return False
+        return True
+    
     def update_token_cache(self, query):
         req = self.session.get("https://html.duckduckgo.com/html/?q=" + query)
         vqd_value = '"vqd" value="'
@@ -21,20 +27,40 @@ class ImageSearcher:
         self.token_cache[hash(query)] = req.text.split(vqd_value)[1].split('"')[0]
         return True
     
-    def random_image_results(self, query, page = None, is_reload = False):
+    def is_api_error(self, pagetext):
+        if pagetext == "If this error persists, please let us know: ops@duckduckgo.com":
+            return True
+        return False
+    
+    def api_search_results(self, file, query, page = None):
+        cache = self.token_cache
         token_hash = hash(query)
-        if token_hash not in self.token_cache:
-            if not self.update_token_cache(query):
-                return None
+        if not self.validate_cache(query, token_hash):
+            return None
         if page == None:
             page = str(random.randint(1, 6) * 100)
-        req = self.session.get("https://duckduckgo.com/i.js?o=json&p=-1&vqd=" + self.token_cache[token_hash] + "&q=" + query + "&s=" + str(page))
-        if req.text == "If this error persists, please let us know: ops@duckduckgo.com":
-            if is_reload == True:
-                return None
-            print("random_image_results: Search failed")
-            if token_hash in self.token_cache:
-                self.token_cache.pop(token_hash)
-            return self.random_image_results(query, page = 0, is_reload = True)
+        req = self.session.get("https://duckduckgo.com/" + file + "?o=json&p=-1&vqd=" + cache[token_hash] + "&q=" + query + "&s=" + str(page))
+        if self.is_api_error(req.text):
+            return None
         results = req.json()
+        return results
+    
+    def random_image_results(self, query, page = None, is_reload = False):
+        cache = self.token_cache
+        token_hash = hash(query)
+        file = "i.js"
+        results = self.api_search_results(file, query)
+        if results == None:
+            cache.pop(token_hash)
+            results = self.api_search_results(file, query, "0")
+        return results
+    
+    def random_video_results(self, query, page = None, is_reload = False):
+        token_hash = hash(query)
+        cache = self.token_cache
+        file = "v.js"
+        results = self.api_search_results(file, query)
+        if results == None:
+            cache.pop(token_hash)
+            results = self.api_search_results(file, query, "0")
         return results
