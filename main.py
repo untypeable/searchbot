@@ -9,7 +9,7 @@ from datetime import date
 
 DISCORD_TOKEN = ""
 
-MESSAGE_HELLO = {
+HELLO = {
    "op":2,
    "d":{
       "token": DISCORD_TOKEN,
@@ -59,66 +59,66 @@ class DiscordClient:
         self.logfile = None
         self.interval = None
         self.searcher = imagesearch.ImageSearcher()
-        asyncio.run(self.WebsocketInit())
+        asyncio.run(self.init_websocket())
     
-    async def WebsocketInit(self):
-        await self.LoggerInit()
-        await self.CreateConnection()
+    async def init_websocket(self):
+        self.init_logger()
+        await self.create_socket_connection()
 
-    async def LoggerInit(self):
-        if not os.path.exists("Logs"):
-            os.mkdir("Logs")
-        self.logfile = open("Logs/" + str(date.today()) + ".txt", "a")
+    def init_logger(self):
+        logpath = "Logs"
+        if not os.path.exists(logpath):
+            os.mkdir(logpath)
+        self.logfile = open(logpath + "/" + str(date.today()) + ".txt", "a")
     
-    async def CreateConnection(self):
+    async def create_socket_connection(self):
         self.websocket = await websockets.connect("wss://gateway.discord.gg/?v=10&encoding=json", max_size=5_000_000)
-        await self.websocket.send(json.dumps(MESSAGE_HELLO))
-        asyncio.create_task(self.HeartbeatDispatcher())
-        await self.MessageDispatcher()
-    
-    async def MessageDispatcher(self):
+        await self.websocket.send(json.dumps(HELLO))
+        asyncio.create_task(self.init_heartbeat_dispatcher())
         while True:
-            if self.websocket == None:
+            try:
+                message = json.loads(await self.websocket.recv())
+            except Exception as Ex:
+                print(Ex)
                 break
-            message = await self.websocket.recv()
-            message = json.loads(message)
             match message["op"]:
                 case 10:
                     self.interval = message["d"]["heartbeat_interval"] / 1000
             match message["t"]:
                 case "MESSAGE_CREATE":
-                    await self.HandleMessage(message["d"])
+                    await self.handle_message(message["d"])
     
-    async def HandleMessage(self, message):
+    async def handle_message(self, message):
         if message["content"].startswith("!searchbot"):
             split = message["content"].split("-")
             if len(split) < 2:
                 return
             query = split[1]
-            results = await self.searcher.random_image_results(query)
-            if len(results) == 0:
+            response = self.searcher.random_image_results(query)
+            results = response["results"]
+            if results == None or len(results) == 0:
                 return
-            await self.ReplyToMessage(message, random.choice(results)["image"])
+            self.reply_to_message(message, random.choice(results)["image"])
     
-    async def ReplyToMessage(self, message, text):
+    def reply_to_message(self, message, text):
         headers = {
             "Authorization": DISCORD_TOKEN,
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/110.0",
             "Content-Type": "application/json"
         }
-        if message.keys().__contains__("guild_id"):
-            HTTP_MESSAGE_REPLY["message_reference"]["guild_id"] = message["guild_id"]
-        HTTP_MESSAGE_REPLY["message_reference"]["channel_id"] = message["channel_id"]
-        HTTP_MESSAGE_REPLY["message_reference"]["message_id"] = message["id"]
-        HTTP_MESSAGE_REPLY["content"] = text
-        req = requests.post("https://discord.com/api/v9/channels/" + str(message["channel_id"]) + "/messages", headers=headers, data=json.dumps(HTTP_MESSAGE_REPLY))
+        reply = HTTP_MESSAGE_REPLY.copy()
+        if "guild_id" in message:
+            reply["message_reference"]["guild_id"] = message["guild_id"]
+        reply["message_reference"]["channel_id"] = message["channel_id"]
+        reply["message_reference"]["message_id"] = message["id"]
+        reply["content"] = text
+        req = requests.post("https://discord.com/api/v9/channels/" + str(message["channel_id"]) + "/messages", headers=headers, data=json.dumps(reply))
     
-    async def HeartbeatDispatcher(self):
+    async def init_heartbeat_dispatcher(self):
+        beartbeat_payload = json.dumps(HEARTBEAT_ACK)
         while True:
-            if self.interval == None:
-                continue
             await asyncio.sleep(self.interval)
-            await self.websocket.send(json.dumps(HEARTBEAT_ACK))
+            await self.websocket.send(beartbeat_payload)
             print("Sent Heartbeat")
 
 client = DiscordClient()
